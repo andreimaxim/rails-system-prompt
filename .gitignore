@@ -1,0 +1,6 @@
+/node_modules
+/package-lock.json
+/sources/repos/*
+/.env
+*.mp3
+*.mp4
