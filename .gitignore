@@ -1,6 +1,7 @@
 /node_modules
 /package-lock.json
 /sources/repos/*
+!/sources/repos/.gitkeep
 /.env
 *.mp3
 *.mp4
