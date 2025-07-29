@@ -268,6 +268,151 @@ end
 
 ---
 
+### Small Tidies Catalog
+
+Following Kent Beck's "Tidy First?" principles, prefer tiny, safe improvements:
+
+#### Extract Variable for Clarity
+**Before tidying:**
+```ruby
+def calculate_discount
+  if user.purchases.where("created_at > ?", 30.days.ago).sum(:total) > 100
+    0.1
+  else
+    0.05
+  end
+end
+```
+
+**After tidying:**
+```ruby
+def calculate_discount
+  recent_purchase_total = user.purchases.where("created_at > ?", 30.days.ago).sum(:total)
+  loyalty_threshold = 100
+  
+  if recent_purchase_total > loyalty_threshold
+    0.1
+  else
+    0.05
+  end
+end
+```
+
+#### Symmetrize Code Structure
+**Before tidying:**
+```ruby
+def process_order
+  validate_inventory
+  
+  if payment.valid?
+    charge_payment
+    update_inventory
+    send_confirmation
+  end
+end
+```
+
+**After tidying:**
+```ruby
+def process_order
+  validate_inventory
+  validate_payment
+  
+  charge_payment
+  update_inventory
+  send_confirmation
+end
+
+private
+
+def validate_payment
+  raise InvalidPayment unless payment.valid?
+end
+```
+
+#### Reading Order Matches Thinking Order
+**Before tidying:**
+```ruby
+class OrderProcessor
+  private
+  
+  def validate_order(order)
+    # ...
+  end
+  
+  def charge_payment(order)
+    # ...
+  end
+  
+  public
+  
+  def process(order)
+    validate_order(order)
+    calculate_totals(order)
+    charge_payment(order)
+    fulfill_order(order)
+  end
+end
+```
+
+**After tidying:**
+```ruby
+class OrderProcessor
+  # Primary public interface at top
+  def process(order)
+    validate_order(order)
+    calculate_totals(order)
+    charge_payment(order)
+    fulfill_order(order)
+  end
+  
+  private
+  
+  # Supporting methods in order of use
+  def validate_order(order)
+    # ...
+  end
+  
+  def calculate_totals(order)
+    # ...
+  end
+  
+  # ... etc
+end
+```
+
+#### Name Before Extract
+**Step 1: Improve names in place**
+```ruby
+def process
+  # Tidy: Better variable names first
+  order_total = items.sum(&:price)
+  tax_amount = order_total * 0.08
+  shipping_cost = calculate_shipping
+  
+  order_total + tax_amount + shipping_cost
+end
+```
+
+**Step 2: Then extract if beneficial**
+```ruby
+def process
+  subtotal + tax + shipping
+end
+
+private
+
+def subtotal
+  items.sum(&:price)
+end
+
+def tax
+  subtotal * tax_rate
+end
+```
+
+---
+
 ### The Craftsman's Workflow: TDD When It Adds Value
 
 TDD is a powerful technique that shines in specific contexts. Use it when the technique naturally fits the problem at hand.
@@ -308,15 +453,29 @@ When working in a new environment or language:
 
 > Example: "Working with this new API is daunting, but I can write tests to verify my understanding step by step."
 
-#### The Red-Green-Refactor Cycle
+#### The Red-Green-Tidy-Refactor Cycle
 
-When using TDD, follow this rhythm:
+An enhancement to the traditional Red-Green-Refactor:
 
 **RED** - Write a failing test that describes desired behavior
 **GREEN** - Write the simplest code that makes the test pass  
-**REFACTOR** - Improve the design while keeping tests green
+**TIDY** - Quick structural improvements (< 5 min)
+**REFACTOR** - Larger design improvements
 
-The refactor step is crucial - it's where design insights emerge and code quality improves.
+The Tidy step is for those immediate, obvious improvements that would make the next test easier to write. Keep tidies separate from refactoring:
+
+- **Tidies:** Small, mechanical, immediate
+- **Refactors:** Larger, design-focused, thoughtful
+
+Example flow:
+```ruby
+# RED: Test for discount calculation
+# GREEN: Implement inline in order.rb
+# TIDY: Extract long conditional to explaining variable
+# Continue to next test...
+# After several cycles:
+# REFACTOR: Extract entire DiscountCalculator class
+```
 
 #### When Other Approaches Work Better
 
@@ -338,6 +497,88 @@ The goal is always the same: build confidence in your code through appropriate f
 5. **Maintain perspective** - Tests serve the code, not vice versa
 
 Remember: The ultimate goal is confident, maintainable, valuable software. TDD is a means to that end, not the end itself.
+
+---
+
+### The Tidy First? Workflow
+
+Before adding any feature, follow this decision tree:
+
+1. **Survey the Landscape** (1-2 minutes)
+   - What files will I need to change?
+   - What makes me uncomfortable about the current structure?
+   - What would make this feature easier to add?
+
+2. **List Potential Tidies** (2-3 minutes)
+   ```ruby
+   # Example for adding email notifications:
+   # - [ ] Extract magic strings to constants
+   # - [ ] Rename `send_mail` to `deliver_email` (consistency)
+   # - [ ] Group related email methods together
+   # - [ ] Extract email validation to separate method
+   ```
+
+3. **Evaluate Each Tidy**
+   - ⚡ Quick win: < 2 minutes, obvious improvement
+   - 🤔 Consider: 2-10 minutes, clear benefit
+   - 🚫 Skip: > 10 minutes or unclear value
+   - 📝 Note for later: Good idea but not needed now
+
+4. **Execute Tidies** (if any)
+   ```bash
+   # Each tidy gets its own commit
+   git commit -m "Tidy: Extract email validation method"
+   git commit -m "Tidy: Rename send_mail to deliver_email for consistency"
+   ```
+
+5. **Then Add Feature**
+   ```bash
+   # Now the feature is cleaner to implement
+   git commit -m "Feature: Add SMS notification support"
+   ```
+
+#### Example: Adding Payment Retry Logic
+
+**Initial Survey:**
+```ruby
+# Current: PaymentProcessor has a complex charge method
+# Needed: Add retry logic for failed payments
+# Discomfort: Hard to see where retry would fit
+```
+
+**Tidying First:**
+```ruby
+# Tidy 1: Extract payment gateway interaction
+def charge(amount)
+  response = execute_charge(amount)  # <-- Extracted
+  handle_response(response)          # <-- Extracted
+end
+
+# Tidy 2: Extract success/failure handling
+def handle_response(response)
+  if response.success?
+    record_successful_payment(response)
+  else
+    record_failed_payment(response)
+  end
+end
+```
+
+**Then Feature:**
+```ruby
+# Now retry logic has a clear insertion point
+def charge(amount)
+  retry_count = 0
+  begin
+    response = execute_charge(amount)
+    handle_response(response)
+  rescue PaymentGateway::TemporaryError => e
+    retry_count += 1
+    retry if retry_count < 3
+    raise
+  end
+end
+```
 
 ---
 
@@ -390,6 +631,37 @@ test "order calculates total" do
   # Prefer using real objects instead
   item = mock("item", price: 10)  # Consider using real Item
 end
+```
+
+---
+
+### The Tidy First? Economics
+
+Apply cost/benefit analysis to tidying decisions:
+
+#### Always Tidy When:
+- **Cognitive Load is High:** You're struggling to understand where to make changes
+- **Multiple Touch Points:** Your feature will modify 3+ areas that share patterns
+- **Team Confusion:** Others have expressed confusion about this code
+- **Cheap and Safe:** The tidy takes < 5 minutes and can't break anything
+
+#### Skip Tidying When:
+- **One-off Change:** This code won't be touched again soon
+- **Time Pressure:** But note it for immediate follow-up
+- **Unclear Direction:** You're not sure what "better" looks like yet
+- **Deep in Flow:** You're making progress and tidying would break concentration
+
+#### Tidy Later When:
+- **Learning Required:** You need to understand the domain better first
+- **Risky Changes:** The tidy could affect many parts of the system
+- **Coordination Needed:** Other team members are working in the same area
+
+Example decision:
+```ruby
+# Facing: Add currency support to Product model
+# Notice: Price calculations scattered across model
+# Decision: Tidy first - extract PriceCalculator (10 min)
+# Reason: Will touch 5 price methods, cleaner with single responsibility
 ```
 
 ---
