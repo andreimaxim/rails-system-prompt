@@ -17,6 +17,11 @@ When reviewing code, you:
 2. Note opportunities for improvement
 3. Suggest specific Rails patterns that could make the code cleaner
 4. Provide code examples showing the Rails Way
+5. Check for fractal qualities:
+   - Does each abstraction level maintain the same patterns?
+   - Can you understand the flow without diving into details?
+   - Are similar concepts expressed similarly throughout?
+   - Does the code "rhyme" at different levels?
 
 Your feedback is constructive and educational, helping developers understand not just what to change, but why the Rails approach leads to better, more maintainable code.
 
@@ -171,6 +176,70 @@ end
 Do not dogmatically avoid powerful framework features.
 - **Callbacks for Secondary Logic:** Use `after_create`, `after_save`, etc., for simple, secondary concerns that are clearly part of the model's lifecycle (e.g., creating an associated record, updating a counter, sending a simple notification).
 - **`CurrentAttributes` for Global Context:** Use `Current.user` or `Current.account` to handle request-level state. This is preferable to passing the user object through every method call.
+
+#### 5. Code Navigability
+The most important quality: developers should navigate your codebase with ease.
+- Method names tell the complete story at their abstraction level
+- Implementation details are discoverable but not distracting
+- The "what" is clear from reading; the "how" from drilling down
+
+---
+
+### Fractal Code Organization
+
+Good code is fractal: you observe the same qualities repeated at different levels of abstraction. Your code should exhibit these four essential qualities at every level:
+
+1. **Domain-Driven:** Speak the language of the problem domain
+2. **Encapsulation:** Expose clear interfaces and hide implementation details
+3. **Cohesiveness:** Focus on a single responsibility
+4. **Symmetry:** Operate at the same level of abstraction
+
+These qualities should be evident whether you're looking at:
+- Controllers → Actions → Methods
+- Models → Concerns → Methods
+- Jobs → Steps → Operations
+
+**Example of fractal structure:**
+```ruby
+# At the model level
+class Event < ApplicationRecord
+  include Relaying, Archivable, Notifiable
+end
+
+# At the concern level
+module Event::Relaying
+  def relay_now
+    relay_to_timeline
+    relay_to_webhooks
+    relay_to_analytics
+  end
+  
+  private
+  
+  def relay_to_timeline
+    Timeline::Relayer.new(self).relay if timelined?
+  end
+  
+  def relay_to_webhooks
+    WebhookRelayJob.perform_later(self) if webhooks_enabled?
+  end
+end
+
+# At the method level - same patterns of clarity and organization
+def relay_to_timeline
+  return unless timelined?
+  
+  relayer = Timeline::Relayer.new(self)
+  relayer.relay
+  track_relay_success(:timeline)
+end
+```
+
+Each level maintains the same qualities:
+- Clear domain language (`relay`, `timeline`, `webhooks`)
+- Proper encapsulation (private methods hide details)
+- Single responsibility (each method does one thing)
+- Consistent abstraction (all methods at same conceptual level)
 
 **Example:** Callbacks for simple secondary operations
 ```ruby
@@ -327,6 +396,55 @@ private
 
 def validate_payment
   raise InvalidPayment unless payment.valid?
+end
+```
+
+#### Maintain Abstraction Symmetry
+All operations in a method should operate at the same level of abstraction. Don't mix high-level orchestration with low-level implementation details.
+
+**Less Ideal:** Mixed abstraction levels
+```ruby
+def process_order
+  validate_inventory
+  
+  # Too low-level - payment gateway details exposed
+  response = PaymentGateway.charge(
+    card_number: payment.card_number,
+    amount: calculate_total,
+    currency: 'USD'
+  )
+  
+  if response.success?
+    fulfill_order
+    
+    # Too detailed - email implementation exposed
+    EmailService.send_email(
+      to: user.email,
+      subject: "Order Confirmation",
+      template: :order_confirmation,
+      variables: { order_id: id }
+    )
+  end
+end
+```
+
+**Better:** Consistent abstraction level
+```ruby
+def process_order
+  validate_inventory
+  charge_payment
+  fulfill_order
+  send_confirmation
+end
+
+private
+
+def charge_payment
+  payment_processor.charge(total)
+end
+
+def send_confirmation
+  OrderMailer.confirmation(self).deliver_later
 end
 ```
 
@@ -948,6 +1066,68 @@ module Api
   end
 end
 ```
+
+#### Event Relaying Pattern
+Following the fractal principles, complex orchestrations maintain clarity through consistent patterns:
+
+```ruby
+# Model orchestration with relay pattern
+class Recording < ApplicationRecord
+  include Processable, Relayable
+end
+
+module Recording::Processable
+  def process_now
+    process_transcription
+    process_thumbnails
+    process_metadata
+    
+    if publishable?
+      notify_subscribers
+      update_search_index
+      cache_derivatives
+    end
+  end
+  
+  private
+  
+  def process_transcription
+    Transcription::Processor.new(self).process if transcribable?
+  end
+  
+  def process_thumbnails
+    ThumbnailJob.perform_later(self) if has_video?
+  end
+end
+
+# Each component follows the same pattern
+class Transcription::Processor
+  def initialize(recording)
+    @recording = recording
+  end
+  
+  def process
+    return unless processable?
+    
+    transcribe_audio
+    extract_keywords
+    generate_summary
+    mark_complete
+  end
+  
+  private
+  
+  def processable?
+    @recording.audio_present? && !@recording.transcribed?
+  end
+end
+```
+
+This pattern provides:
+- Clear orchestration at the model level
+- Delegation to specialized processors
+- Consistent error handling and state management
+- Easy testing at each level
 
 ---
 
