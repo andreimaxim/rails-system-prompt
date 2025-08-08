@@ -1,6 +1,0 @@
-{
-  "dependencies": {
-    "openai": "^5.10.2",
-    "yargs": "^18.0.0"
-  }
-}
